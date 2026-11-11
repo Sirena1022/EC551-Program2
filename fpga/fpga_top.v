@@ -1,4 +1,3 @@
-
 `timescale 1ns / 1ps
 
 module fpga_top (
@@ -9,36 +8,46 @@ module fpga_top (
     output reg  [15:0] led
 );
 
-    // Fixed input values for demonstration
-    wire [15:0] a = 16'd12;
-    wire [15:0] b = 16'd5;
+    // Read input values from switches
+    wire [15:0] a = {12'b0, sw[7:4]};
+    wire [15:0] b = {12'b0, sw[11:8]};
 
     // Arithmetic results
     wire [15:0] add_result;
     wire [15:0] sub_result;
     wire [15:0] mul_result;
 
-    adder #(.WIDTH(16)) u_adder (
+    // Button pulse
+    wire step;
+
+    // Selected result
+    reg [15:0] selected_result;
+
+    adder #(
+        .WIDTH(16)
+    ) u_adder (
         .a(a),
         .b(b),
         .result(add_result)
     );
 
-    subtractor #(.WIDTH(16)) u_subtractor (
+    subtractor #(
+        .WIDTH(16)
+    ) u_subtractor (
         .a(a),
         .b(b),
         .result(sub_result)
     );
 
-    multiplier #(.WIDTH(16)) u_multiplier (
+    multiplier #(
+        .WIDTH(16)
+    ) u_multiplier (
         .a(a),
         .b(b),
         .result(mul_result)
     );
 
-    // Button control: one step pulse per press
-    wire step;
-
+    // Generate one step pulse per button press
     button_step #(
         .DEBOUNCE_CYCLES(1000000)
     ) u_button_step (
@@ -48,9 +57,7 @@ module fpga_top (
         .step(step)
     );
 
-    // Select an arithmetic result using switches
-    reg [15:0] selected_result;
-
+    // Select which result to display
     always @(*) begin
         case (sw[1:0])
             2'b00: selected_result = add_result;
@@ -60,7 +67,7 @@ module fpga_top (
         endcase
     end
 
-    // Update LEDs only when button generates a step
+    // Update LEDs on a button press
     always @(posedge clk) begin
         if (reset)
             led <= 16'd0;

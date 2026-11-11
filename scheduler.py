@@ -1,274 +1,128 @@
-
-# EC551 Programming Assignment 2
-# Basic ASAP and ALAP Scheduler
-# Author: Sirena
-#
-# Interface:
-# [
-#   {"id": "O1", "expr": "X=A+B",
-#    "op": "+", "deps": []}
-# ]
-#
-# Each operation takes one clock cycle.
-
-import heapq
-
-
-def topological_sort(operations):
-    """Validate the DAG and return a valid operation order."""
-
-    if not isinstance(operations, list):
-        raise ValueError("Operations must be a list.")
-
-    op_map = {}
-
-    for op in operations:
-        if not isinstance(op, dict):
-            raise ValueError("Invalid operation format.")
-
-        for key in ("id", "expr", "op", "deps"):
-            if key not in op:
-                raise ValueError(f"Missing field: {key}")
-
-        op_id = op["id"]
-
-        if not isinstance(op_id, str) or not op_id:
-            raise ValueError("Invalid operation ID.")
-
-        if op_id in op_map:
-            raise ValueError(f"Duplicate operation ID: {op_id}")
-
-        if op["op"] not in ("+", "-", "*"):
-            raise ValueError(f"Invalid operator in {op_id}")
-
-        if not isinstance(op["expr"], str):
-            raise ValueError(f"Invalid expression in {op_id}")
-
-        if not isinstance(op["deps"], list):
-            raise ValueError(f"Invalid dependencies in {op_id}")
-
-        op_map[op_id] = op
-
-    successors = {op_id: [] for op_id in op_map}
-    indegree = {op_id: 0 for op_id in op_map}
-
-    for op_id, op in op_map.items():
-        dependencies = op["deps"]
-
-        if len(dependencies) != len(set(dependencies)):
-            raise ValueError(f"Duplicate dependency in {op_id}")
-
-        for dep in dependencies:
-            if dep not in op_map:
-                raise ValueError(f"Unknown dependency: {dep}")
-
-            if dep == op_id:
-                raise ValueError(f"Self-dependency in {op_id}")
-
-            successors[dep].append(op_id)
-            indegree[op_id] += 1
-
-    ready = [
-        op_id for op_id, degree in indegree.items()
-        if degree == 0
-    ]
-
-    heapq.heapify(ready)
-    order = []
-
-    while ready:
-        current = heapq.heappop(ready)
-        order.append(current)
-
-        for nxt in successors[current]:
-            indegree[nxt] -= 1
-
-            if indegree[nxt] == 0:
-                heapq.heappush(ready, nxt)
-
-    if len(order) != len(op_map):
-        raise ValueError("Cycle detected in DAG.")
-
-    return order, successors
-
-
-def asap_schedule(operations):
-    """Schedule each operation as early as possible."""
-
-    order, _ = topological_sort(operations)
-    op_map = {op["id"]: op for op in operations}
-    schedule = {}
-
-    for op_id in order:
-        deps = op_map[op_id]["deps"]
-
-        if not deps:
-            schedule[op_id] = 1
-        else:
-            schedule[op_id] = max(
-                schedule[dep] for dep in deps
-            ) + 1
-
-    return schedule
-
-
-def alap_schedule(operations, latency):
-    """Schedule as late as possible within the latency."""
-
-    if type(latency) is not int or latency < 1:
-        raise ValueError("Latency must be a positive integer.")
-
-    order, successors = topological_sort(operations)
-
-    asap = asap_schedule(operations)
-
-    if asap and latency < max(asap.values()):
-        raise ValueError("Latency is too short for this DAG.")
-
-    schedule = {}
-
-    for op_id in reversed(order):
-        next_ops = successors[op_id]
-
-        if not next_ops:
-            schedule[op_id] = latency
-        else:
-            schedule[op_id] = min(
-                schedule[nxt] for nxt in next_ops
-            ) - 1
-
-    return schedule
-
-
-def print_schedule(operations, schedule, title):
-    """Display operations grouped by clock cycle."""
-
-    op_map = {op["id"]: op for op in operations}
-
-    print(f"\n{title}")
-
-    for cycle in sorted(set(schedule.values())):
-        print(f"Cycle {cycle}:")
-
-        for op_id in sorted(schedule):
-            if schedule[op_id] == cycle:
-                op = op_map[op_id]
-                print(
-                    f"  {op_id}: {op['expr']} "
-                    f"[{op['op']}]"
-                )
-
-
-# Tests run only when executing this file directly.
-# Importing scheduler.py will not run these tests.
-
-if __name__ == "__main__":
-
-    # TEST 1: Original DAG
-    operations1 = [
-        {"id": "O1", "expr": "X=A+B",
-         "op": "+", "deps": []},
-
-        {"id": "O2", "expr": "Y=X*B",
-         "op": "*", "deps": ["O1"]},
-
-        {"id": "O3", "expr": "Z=X-A",
-         "op": "-", "deps": ["O1"]}
-    ]
-
-    print("TEST 1: Original DAG")
-
-    print_schedule(
-        operations1,
-        asap_schedule(operations1),
-        "ASAP Scheduling"
-    )
-
-    print_schedule(
-        operations1,
-        alap_schedule(operations1, 4),
-        "ALAP Scheduling (4 cycles)"
-    )
-
-    # TEST 2: Unordered DAG
-    operations2 = [
-        {"id": "O3", "expr": "Z=Y-A",
-         "op": "-", "deps": ["O2"]},
-
-        {"id": "O1", "expr": "X=A+B",
-         "op": "+", "deps": []},
-
-        {"id": "O2", "expr": "Y=X*B",
-         "op": "*", "deps": ["O1"]}
-    ]
-
-    print("\nTEST 2: Unordered DAG")
-
-    print_schedule(
-        operations2,
-        asap_schedule(operations2),
-        "ASAP Scheduling"
-    )
-
-    print_schedule(
-        operations2,
-        alap_schedule(operations2, 3),
-        "ALAP Scheduling (3 cycles)"
-    )
-
-    # TEST 3: Invalid latency
-    print("\nTEST 3: Invalid Latency")
-
-    try:
-        alap_schedule(operations2, 2)
-    except ValueError as error:
-        print("Expected error:", error)
-
-    # TEST 4: Cycle detection
-    print("\nTEST 4: Cycle Detection")
-
-    operations3 = [
-        {"id": "O1", "expr": "X=Y+A",
-         "op": "+", "deps": ["O2"]},
-
-        {"id": "O2", "expr": "Y=X+B",
-         "op": "+", "deps": ["O1"]}
-    ]
-
-    try:
-        asap_schedule(operations3)
-    except ValueError as error:
-        print("Expected error:", error)
-
-    # TEST 5: Parallel operations
-    print("\nTEST 5: Parallel Operations")
-
-    operations4 = [
-        {"id": "O1", "expr": "X=A+B",
-         "op": "+", "deps": []},
-
-        {"id": "O2", "expr": "Y=C*D",
-         "op": "*", "deps": []},
-
-        {"id": "O3", "expr": "Z=X-Y",
-         "op": "-", "deps": ["O1", "O2"]}
-    ]
-
-    print_schedule(
-        operations4,
-        asap_schedule(operations4),
-        "ASAP Scheduling"
-    )
-
-    # TEST 6: Unknown dependency
-    print("\nTEST 6: Unknown Dependency")
-
-    try:
-        asap_schedule([
-            {"id": "O1", "expr": "X=A+B",
-             "op": "+", "deps": ["O9"]}
-        ])
-    except ValueError as error:
-        print("Expected error:", error)
-
-    print("\nAll six tests completed.")
+"""Five scheduling strategies for unit-latency arithmetic DAGs."""
+from collections import defaultdict
+from dataclasses import dataclass
+from dag import Operation
+
+OPS = {"+": "adders", "-": "subtractors", "*": "multipliers"}
+
+@dataclass(frozen=True)
+class Schedule:
+    mode: str
+    cycles: dict[int, int]
+    latency: int
+
+
+def _validate(nodes, limits):
+    if limits is None:
+        return
+    for name in OPS.values():
+        if name not in limits or not isinstance(limits[name], int) or limits[name] < 1:
+            raise ValueError(f"Resource limit '{name}' must be a positive integer")
+
+
+def asap(nodes: list[Operation]) -> Schedule:
+    cycles = {}
+    for node in nodes:
+        cycles[node.id] = 1 + max((cycles[p] for p in node.predecessors), default=0)
+    return Schedule("asap", cycles, max(cycles.values(), default=0))
+
+
+def alap(nodes: list[Operation], deadline: int) -> Schedule:
+    if deadline < asap(nodes).latency:
+        raise ValueError("Deadline is shorter than the critical path")
+    successors = defaultdict(list)
+    for node in nodes:
+        for p in node.predecessors:
+            successors[p].append(node.id)
+    cycles = {}
+    for node in reversed(nodes):
+        cycles[node.id] = min((cycles[s] - 1 for s in successors[node.id]), default=deadline)
+    return Schedule("alap", cycles, deadline)
+
+
+def _list_schedule(nodes, limits, priority, deadline=None, mode="constrained-asap"):
+    _validate(nodes, limits)
+    assigned = {}
+    used = defaultdict(lambda: defaultdict(int))
+    remaining = {n.id for n in nodes}
+    by_id = {n.id: n for n in nodes}
+    t = 1
+    while remaining:
+        ready = [by_id[i] for i in remaining if all(p in assigned and assigned[p] < t for p in by_id[i].predecessors)]
+        ready.sort(key=priority)
+        scheduled_now = 0
+        for node in ready:
+            resource = OPS[node.equation.operator]
+            if used[t][resource] < limits[resource]:
+                assigned[node.id] = t
+                used[t][resource] += 1
+                remaining.remove(node.id)
+                scheduled_now += 1
+        if deadline is not None and t >= deadline and remaining:
+            raise ValueError(f"No feasible schedule found by cycle {deadline} using this heuristic")
+        if not scheduled_now and not ready:
+            raise ValueError("No schedulable operations: dependency cycle or invalid DAG")
+        t += 1
+    return Schedule(mode, assigned, max(assigned.values(), default=0))
+
+
+def constrained_asap(nodes, limits):
+    return _list_schedule(nodes, limits, lambda n: n.id)
+
+
+def _backward_constrained(nodes, limits, deadline):
+    """Reverse-time list scheduling, prioritizing late-starting operations."""
+    _validate(nodes, limits)
+    if deadline < asap(nodes).latency:
+        raise ValueError("Deadline is shorter than the critical path")
+    successors = defaultdict(list)
+    for n in nodes:
+        for p in n.predecessors:
+            successors[p].append(n.id)
+    by_id = {n.id: n for n in nodes}
+    assigned = {}
+    remaining = set(by_id)
+    for t in range(deadline, 0, -1):
+        used = defaultdict(int)
+        ready = [by_id[i] for i in remaining if all(s in assigned and assigned[s] > t for s in successors[i])]
+        # Favor operations with more upstream dependencies (reverse critical path).
+        ready.sort(key=lambda n: (-len(n.predecessors), -n.id))
+        for n in ready:
+            resource = OPS[n.equation.operator]
+            if used[resource] < limits[resource]:
+                assigned[n.id] = t
+                remaining.remove(n.id)
+                used[resource] += 1
+    if remaining:
+        raise ValueError(f"No feasible constrained ALAP schedule found for deadline {deadline} using this heuristic")
+    return Schedule("constrained-alap", assigned, deadline)
+
+
+def custom(nodes, limits):
+    """Critical-path-first list scheduling (prioritizes long downstream chains)."""
+    successors = defaultdict(list)
+    for n in nodes:
+        for p in n.predecessors:
+            successors[p].append(n.id)
+    longest = {}
+    for n in reversed(nodes):
+        longest[n.id] = 1 + max((longest[s] for s in successors[n.id]), default=0)
+    return _list_schedule(nodes, limits, lambda n: (-longest[n.id], n.id), mode="custom")
+
+
+def schedule(nodes, mode, limits=None, deadline=None):
+    if mode == "asap":
+        return asap(nodes)
+    if mode == "alap":
+        return alap(nodes, deadline if deadline is not None else asap(nodes).latency)
+    if mode in ("constrained-asap", "constrained-alap", "custom"):
+        if limits is None:
+            raise ValueError(f"{mode} requires resource limits")
+        if mode == "constrained-asap":
+            return constrained_asap(nodes, limits)
+        if mode == "custom":
+            return custom(nodes, limits)
+        if deadline is None:
+            raise ValueError("constrained-alap requires --deadline")
+        return _backward_constrained(nodes, limits, deadline)
+    raise ValueError(f"Unknown scheduling mode: {mode}")

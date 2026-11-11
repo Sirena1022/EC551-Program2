@@ -203,36 +203,8 @@ Physical hardware testing confirmed the results X = 17, Y = 29, Z = 12, and Q = 
 
 Adder, subtractor, multiplier, and Done observation were also verified using the board switches and LEDs.
 
-## 9. 30-Minute Demonstration Plan
 
-| Time | Demonstration Activity |
-|---|---|
-| 0–3 minutes | Introduce project architecture and source files |
-| 3–6 minutes | Show parsing, SSA conversion, and dependency analysis |
-| 6–10 minutes | Demonstrate five scheduling modes and resource constraints |
-| 10–13 minutes | Generate Verilog and explain the datapath and FSM |
-| 13–18 minutes | Live Run 1: Default equations on Nexys A7 |
-| 18–22 minutes | Live Run 2: Professor-selected equations and scheduling |
-| 22–27 minutes | Live Run 3: Additional professor-selected equations and RTL verification |
-| 27–30 minutes | Discuss results, limitations, and questions |
-
-### Live Run 1 — Default Example
-
-Use the four sample equations with A = 12 and B = 5. Demonstrate individual operations, step control, intermediate results, functional-unit observation, and Done.
-
-### Live Run 2 — Custom Equations
-
-Allow the professor to modify the arithmetic input file. Run the parser, SSA conversion, scheduling engine, and Verilog generator.
-
-Inspect the schedule and generated RTL. A different FPGA interface may be needed if the input or output variable names change.
-
-### Live Run 3 — Resource-Constrained Example
-
-Allow the professor to select another arithmetic example and resource limit. Generate the schedule, compare resource allocation, and produce updated RTL.
-
-Where time and FPGA interface compatibility permit, simulate or deploy the new hardware design.
-
-## 10. Known Limitations
+## 9. Known Limitations
 
 - The demonstrated hardware uses 16-bit arithmetic.
 - FPGA switch inputs are limited to four bits per input variable in the current top-level design.
@@ -242,12 +214,12 @@ Where time and FPGA interface compatibility permit, simulate or deploy the new h
 - New input/output variable names require a compatible FPGA wrapper.
 - The HLS front end can generate new schedules and RTL, but arbitrary equation sets have not all been physically deployed on the FPGA.
 
-## 11. Conclusion
+## 10. Conclusion
 
 This project demonstrates a simplified HLS workflow from arithmetic equations to resource-shared Verilog RTL.
 
 The default design successfully passed functional simulation and was demonstrated on the Nexys A7 FPGA with button-controlled execution and observable arithmetic results.
-## 12. Team Members and Contributions
+## 11. Team Members and Contributions
 
 This project was developed collaboratively by **Sirena** and **Benine**. Responsibilities were divided between the HLS software development and FPGA hardware integration, with both members contributing to the overall system.
 

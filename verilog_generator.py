@@ -1,4 +1,4 @@
-
+﻿
 import argparse
 import json
 import re
@@ -126,3 +126,5 @@ def main():
     print(f'Generated {args.output}')
 
 if __name__ == '__main__':
+    main()
+

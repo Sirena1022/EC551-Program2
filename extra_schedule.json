@@ -1,0 +1,67 @@
+{
+  "mode": "constrained-asap",
+  "latency_cycles": 4,
+  "inputs": [
+    "A",
+    "B"
+  ],
+  "final_versions": {
+    "X": "X_2",
+    "Y": "Y_1",
+    "Z": "Z_1"
+  },
+  "resource_limits": {
+    "adders": 1,
+    "subtractors": 1,
+    "multipliers": 1
+  },
+  "operations": [
+    {
+      "id": 0,
+      "target": "X_1",
+      "left": "A",
+      "operator": "+",
+      "right": "B",
+      "predecessors": [],
+      "cycle": 1,
+      "unit": "adders"
+    },
+    {
+      "id": 1,
+      "target": "X_2",
+      "left": "X_1",
+      "operator": "+",
+      "right": "A",
+      "predecessors": [
+        0
+      ],
+      "cycle": 2,
+      "unit": "adders"
+    },
+    {
+      "id": 2,
+      "target": "Y_1",
+      "left": "X_2",
+      "operator": "*",
+      "right": "B",
+      "predecessors": [
+        1
+      ],
+      "cycle": 3,
+      "unit": "multipliers"
+    },
+    {
+      "id": 3,
+      "target": "Z_1",
+      "left": "Y_1",
+      "operator": "-",
+      "right": "X_2",
+      "predecessors": [
+        1,
+        2
+      ],
+      "cycle": 4,
+      "unit": "subtractors"
+    }
+  ]
+}

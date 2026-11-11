@@ -1,0 +1,559 @@
+
+"""
+EC551 Programming Assignment 2
+Step-Controlled Verilog Generator
+
+Generate resource-shared Verilog from schedule.json.
+The FSM advances one state per step pulse.
+"""
+
+import argparse
+import json
+import re
+
+from collections import defaultdict
+from pathlib import Path
+
+
+UNITS = {
+    "+": ("adder", "adders"),
+    "-": ("subtractor", "subtractors"),
+    "*": ("multiplier", "multipliers")
+}
+
+IDENT = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*$")
+
+
+def generate(data, width=16, module="generated_step_circuit"):
+
+    # ==========================================
+    # 1. Validate Input
+    # ==========================================
+
+    if not 1 <= width <= 32:
+        raise ValueError("Width must be 1..32")
+
+    if not IDENT.fullmatch(module):
+        raise ValueError("Invalid module name")
+
+    ops = data["operations"]
+
+    if not ops:
+        raise ValueError("Schedule has no operations")
+
+    inputs = data["inputs"]
+    finals = data["final_versions"]
+
+    targets = [op["target"] for op in ops]
+
+    if len(set(targets)) != len(targets):
+        raise ValueError("SSA targets must be unique")
+
+    if len(set(inputs)) != len(inputs):
+        raise ValueError("Duplicate inputs")
+
+    if set(inputs) & set(targets):
+        raise ValueError("Inputs conflict with targets")
+
+    for name in inputs + targets + list(finals):
+        if not IDENT.fullmatch(name):
+            raise ValueError(f"Invalid identifier: {name}")
+
+    for name in inputs:
+        if name in {
+            "clk", "reset", "step", "done",
+            "observe_type", "observe_index",
+            "observe_data"
+        }:
+            raise ValueError(f"Reserved input name: {name}")
+
+    # ==========================================
+    # 2. Organize Operations by Cycle
+    # ==========================================
+
+    by_cycle = defaultdict(list)
+
+    for op in ops:
+
+        t = op["cycle"]
+
+        if not isinstance(t, int) or t < 1:
+            raise ValueError("Invalid cycle")
+
+        if op["operator"] not in UNITS:
+            raise ValueError("Invalid operator")
+
+        by_cycle[t].append(op)
+
+    latency = data["latency_cycles"]
+
+    if not isinstance(latency, int):
+        raise ValueError("Invalid latency")
+
+    if latency < max(by_cycle):
+        raise ValueError("Latency shorter than schedule")
+
+    # ==========================================
+    # 3. Validate Dependencies
+    # ==========================================
+
+    producer = {
+        op["target"]: op
+        for op in ops
+    }
+
+    for op in ops:
+
+        for operand in (op["left"], op["right"]):
+
+            if operand.isdecimal():
+
+                if int(operand) >= 2 ** width:
+                    raise ValueError(
+                        f"Constant {operand} exceeds width"
+                    )
+
+            elif operand in producer:
+
+                if producer[operand]["cycle"] >= op["cycle"]:
+                    raise ValueError(
+                        f"Dependency not ready: {op['target']}"
+                    )
+
+            elif operand not in inputs:
+
+                raise ValueError(
+                    f"Unknown operand: {operand}"
+                )
+
+    for name, version in finals.items():
+
+        if version not in producer:
+            raise ValueError(
+                f"Unknown final version: {version}"
+            )
+
+    # ==========================================
+    # 4. Calculate Functional Unit Counts
+    # ==========================================
+
+    counts = {}
+
+    for operator, (unit, kind) in UNITS.items():
+
+        counts[kind] = max(
+            (
+                sum(
+                    op["operator"] == operator
+                    for op in by_cycle[t]
+                )
+                for t in range(1, latency + 1)
+            ),
+            default=0
+        )
+
+    slots = defaultdict(list)
+    assignments = {}
+
+    for t in range(1, latency + 1):
+
+        used = defaultdict(int)
+
+        for op in sorted(
+            by_cycle[t],
+            key=lambda x: x["id"]
+        ):
+
+            typ, kind = UNITS[op["operator"]]
+
+            index = used[kind]
+            used[kind] += 1
+
+            assignments[op["target"]] = (
+                kind, index
+            )
+
+            slots[(kind, index)].append(op)
+
+    # ==========================================
+    # 5. Generate Module Ports
+    # ==========================================
+
+    ports = [
+        "input wire clk",
+        "input wire reset",
+        "input wire step"
+    ]
+
+    for name in inputs:
+        ports.append(
+            f"input wire [{width-1}:0] {name}"
+        )
+
+    ports.append("output reg done")
+
+    for name in finals:
+        ports.append(
+            f"output wire [{width-1}:0] out_{name}"
+        )
+
+    ports += [
+        "input wire [7:0] observe_index",
+        "input wire [1:0] observe_type",
+        f"output reg [{width-1}:0] observe_data"
+    ]
+
+    lines = [
+        "`timescale 1ns / 1ps",
+        "",
+        "// Automatically generated by EC551 HLS tool",
+        "// Each step pulse advances exactly one FSM state",
+        "",
+        f"module {module} (",
+        "    " + ",\n    ".join(ports),
+        ");",
+        ""
+    ]
+
+    # ==========================================
+    # 6. FSM State Definitions
+    # ==========================================
+
+    state_width = max(
+        1,
+        (latency + 1).bit_length()
+    )
+
+    lines += [
+        f"  reg [{state_width-1}:0] state;",
+        "",
+        f"  localparam [{state_width-1}:0] IDLE = 0;",
+        f"  localparam [{state_width-1}:0] DONE = {latency+1};"
+    ]
+
+    for t in range(1, latency + 1):
+
+        lines.append(
+            f"  localparam [{state_width-1}:0] "
+            f"CYCLE_{t} = {t};"
+        )
+
+    lines.append("")
+
+    # ==========================================
+    # 7. Intermediate Registers
+    # ==========================================
+
+    lines.append(
+        "  // Intermediate registers"
+    )
+
+    for target in targets:
+
+        lines.append(
+            f"  reg [{width-1}:0] reg_{target};"
+        )
+
+    lines.append("")
+
+    # ==========================================
+    # 8. Operand Selection
+    # ==========================================
+
+    def value(operand):
+
+        if operand.isdecimal():
+            return f"{width}'d{operand}"
+
+        if operand in producer:
+            return f"reg_{operand}"
+
+        return operand
+
+    # ==========================================
+    # 9. Generate Functional Units and MUX
+    # ==========================================
+
+    for (kind, index), slot_ops in sorted(
+        slots.items()
+    ):
+
+        typ = next(
+            name
+            for name, unit_kind in UNITS.values()
+            if unit_kind == kind
+        )
+
+        tag = f"{typ}_{index}"
+
+        lines += [
+            f"  reg [{width-1}:0] {tag}_a;",
+            f"  reg [{width-1}:0] {tag}_b;",
+            f"  wire [{width-1}:0] {tag}_result;",
+            "",
+            f"  {typ} #(.WIDTH({width})) u_{tag} (",
+            f"    .a({tag}_a),",
+            f"    .b({tag}_b),",
+            f"    .result({tag}_result)",
+            "  );",
+            "",
+            "  always @(*) begin",
+            f"    {tag}_a = {width}'d0;",
+            f"    {tag}_b = {width}'d0;",
+            "",
+            "    case (state)"
+        ]
+
+        for op in slot_ops:
+
+            lines += [
+                f"      CYCLE_{op['cycle']}: begin",
+                f"        {tag}_a = {value(op['left'])};",
+                f"        {tag}_b = {value(op['right'])};",
+                "      end"
+            ]
+
+        lines += [
+            "      default: begin end",
+            "    endcase",
+            "  end",
+            ""
+        ]
+
+    # ==========================================
+    # 10. Step-Controlled FSM
+    # ==========================================
+
+    lines += [
+        "  // FSM advances only on a step pulse",
+        "  always @(posedge clk) begin",
+        "",
+        "    if (reset) begin",
+        "      state <= IDLE;",
+        "      done <= 1'b0;"
+    ]
+
+    for target in targets:
+
+        lines.append(
+            f"      reg_{target} <= {width}'d0;"
+        )
+
+    lines += [
+        "    end",
+        "",
+        "    else if (step) begin",
+        "",
+        "      case (state)",
+        "",
+        "        IDLE: begin",
+        "          done <= 1'b0;",
+        "          state <= CYCLE_1;",
+        "        end",
+        ""
+    ]
+
+    # Generate scheduled cycle states
+
+    for t in range(1, latency + 1):
+
+        lines.append(
+            f"        CYCLE_{t}: begin"
+        )
+
+        for op in sorted(
+            by_cycle[t],
+            key=lambda x: x["id"]
+        ):
+
+            kind, index = assignments[
+                op["target"]
+            ]
+
+            typ = next(
+                name
+                for name, unit_kind in UNITS.values()
+                if unit_kind == kind
+            )
+
+            lines.append(
+                f"          reg_{op['target']} "
+                f"<= {typ}_{index}_result;"
+            )
+
+        if t == latency:
+
+            lines += [
+                "          done <= 1'b1;",
+                "          state <= DONE;"
+            ]
+
+        else:
+
+            lines.append(
+                f"          state <= CYCLE_{t+1};"
+            )
+
+        lines += [
+            "        end",
+            ""
+        ]
+
+    # DONE state
+
+    lines += [
+        "        DONE: begin",
+        "          done <= 1'b0;",
+        "          state <= IDLE;",
+        "        end",
+        "",
+        "        default: begin",
+        "          state <= IDLE;",
+        "        end",
+        "",
+        "      endcase",
+        "    end",
+        "  end",
+        ""
+    ]
+
+    # ==========================================
+    # 11. Output Assignments
+    # ==========================================
+
+    for name, version in finals.items():
+
+        lines.append(
+            f"  assign out_{name} = reg_{version};"
+        )
+
+    lines.append("")
+
+    # ==========================================
+    # 12. Functional Unit Observation
+    # ==========================================
+
+    lines += [
+        "  // observe_type:",
+        "  // 00 = Adder",
+        "  // 01 = Subtractor",
+        "  // 10 = Multiplier",
+        "",
+        "  always @(*) begin",
+        f"    observe_data = {width}'d0;",
+        "",
+        "    case (observe_type)"
+    ]
+
+    observation_types = [
+        ("00", "adders"),
+        ("01", "subtractors"),
+        ("10", "multipliers")
+    ]
+
+    for code, kind in observation_types:
+
+        typ = next(
+            name
+            for name, unit_kind in UNITS.values()
+            if unit_kind == kind
+        )
+
+        lines.append(
+            f"      2'b{code}: begin"
+        )
+
+        lines.append(
+            "        case (observe_index)"
+        )
+
+        for i in range(counts[kind]):
+
+            lines.append(
+                f"          8'd{i}: observe_data "
+                f"= {typ}_{i}_result;"
+            )
+
+        lines += [
+            "          default: begin end",
+            "        endcase",
+            "      end"
+        ]
+
+    lines += [
+        "      default: begin end",
+        "    endcase",
+        "  end",
+        "",
+        "endmodule",
+        ""
+    ]
+
+    return "\n".join(lines)
+
+
+# ==========================================
+# 13. Command Line Interface
+# ==========================================
+
+def main():
+
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate step-controlled Verilog "
+            "from HLS schedule"
+        )
+    )
+
+    parser.add_argument(
+        "schedule",
+        nargs="?",
+        default="schedule.json"
+    )
+
+    parser.add_argument(
+        "--output",
+        default="generated_step_auto.v"
+    )
+
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=16
+    )
+
+    parser.add_argument(
+        "--module",
+        default="generated_step_circuit"
+    )
+
+    args = parser.parse_args()
+
+    data = json.loads(
+        Path(args.schedule).read_text(
+            encoding="utf-8"
+        )
+    )
+
+    verilog = generate(
+        data,
+        width=args.width,
+        module=args.module
+    )
+
+    Path(args.output).write_text(
+        verilog,
+        encoding="utf-8"
+    )
+
+    print(
+        f"Generated {args.output}"
+    )
+
+    print(
+        "Step-controlled FSM generation complete."
+    )
+
+
+if __name__ == "__main__":
+    main()

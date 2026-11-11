@@ -1,0 +1,63 @@
+{
+  "mode": "asap",
+  "latency_cycles": 3,
+  "inputs": [
+    "A",
+    "B"
+  ],
+  "final_versions": {
+    "X": "X_1",
+    "Y": "Y_1",
+    "Z": "Z_1",
+    "Q": "Q_1"
+  },
+  "resource_limits": null,
+  "operations": [
+    {
+      "id": 0,
+      "target": "X_1",
+      "left": "A",
+      "operator": "+",
+      "right": "B",
+      "predecessors": [],
+      "cycle": 1,
+      "unit": "adders"
+    },
+    {
+      "id": 1,
+      "target": "Y_1",
+      "left": "X_1",
+      "operator": "+",
+      "right": "A",
+      "predecessors": [
+        0
+      ],
+      "cycle": 2,
+      "unit": "adders"
+    },
+    {
+      "id": 2,
+      "target": "Z_1",
+      "left": "X_1",
+      "operator": "-",
+      "right": "B",
+      "predecessors": [
+        0
+      ],
+      "cycle": 2,
+      "unit": "subtractors"
+    },
+    {
+      "id": 3,
+      "target": "Q_1",
+      "left": "B",
+      "operator": "*",
+      "right": "Z_1",
+      "predecessors": [
+        2
+      ],
+      "cycle": 3,
+      "unit": "multipliers"
+    }
+  ]
+}

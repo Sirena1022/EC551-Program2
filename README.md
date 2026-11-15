@@ -247,3 +247,7 @@ This project was developed collaboratively by **Sirena** and **Benine**. Respons
 - Verified arithmetic operations, scheduling behavior, and the overall design workflow.
 - Prepared the GitHub repository, project documentation, and the 30-minute demonstration plan.
 - Collaborated on debugging and final system validation.
+
+- #### AI Acknowledgment
+
+During the development of this project, our team used AI-assisted tools, including ChatGPT, to support the coding and development process. AI was used to help generate and refine portions of the Python and Verilog code, troubleshoot errors, explain technical concepts, and assist with debugging and documentation.Our team remained responsible for the project's implementation, testing, design decisions, and final submission.
